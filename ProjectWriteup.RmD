@@ -1,0 +1,99 @@
+---
+output:
+  pdf_document: default
+  html_document: default
+---
+# Preparing environment & libraries
+``` {r}
+## Set seed and load libraries
+set.seed(65536)
+library(caret)
+library(rpart)
+library(rpart.plot)
+library(randomForest)
+library(corrplot)
+## Set the working directory
+cwd <- paste(getwd(), "/Rdata", sep = "")
+if (!file.exists("./Rdata")) {
+  dir.create("./Rdata")
+}
+setwd(cwd)
+```
+
+# Download raw training & test datasets in project folder
+``` {r}
+trngUrl <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+testUrl <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+trngFile <- paste(getwd(), "/pml-training.csv", sep="")
+testFile <- paste(getwd(), "/pml-testing.csv", sep="")
+if (!file.exists("trngFile")) {
+  download.file(trngUrl, destfile = trngFile, method = "curl")
+}
+if (!file.exists("testFile")) {
+  download.file(testUrl, destfile = testFile, method = "curl")
+}
+```
+
+# Read the data
+``` {r}
+trngRaw <- read.csv(trngFile)
+testRaw <- read.csv(testFile)
+dim(trngRaw)
+dim(testRaw)
+```
+
+# Clean the data
+``` {r}
+# Remove cases with NA data as they will be unusable
+trngRaw <- trngRaw[, colSums(is.na(trngRaw)) == 0]
+testRaw <- testRaw[, colSums(is.na(testRaw)) == 0]
+# Remove columns that do not have contribute as much to the accelerometer measurements
+classe <- trngRaw$classe
+trngRemove <- grepl("^X|timestamp|window", names(trngRaw))
+trngRaw <- trngRaw[,!trngRemove]
+trngClean <- trngRaw[, sapply(trngRaw, is.numeric)]
+trngClean$classe <- classe
+testRemove <- grepl("^X|timestamp|window", names(testRaw))
+testRaw <- testRaw[, !testRemove]
+testClean <- testRaw[, sapply(testRaw, is.numeric)]
+```
+
+# Slice the data
+``` {r}
+inTrng <- createDataPartition(trngClean$classe, p=0.70, list=F)
+trngData <- trngClean[inTrng,]
+testData <- trngClean[-inTrng,]
+```
+
+# Data modelling
+``` {r}
+# Using the random forest algorithm
+ctrlRF <- trainControl(method="cv", 5)
+modelRF <- train(classe ~., data = trngData, method = "rf", trControl = ctrlRF, ntree = 250)
+print(modelRF)
+# Estimate the performance of the model on the validation test set
+predictRF <- predict(modelRF, testData)
+testData$classe <- as.factor(testData$classe)
+confusionMatrix(testData$classe, predictRF)
+accy <- postResample(predictRF, testData$classe)
+print(accy)
+oosError <- 1 - as.numeric(confusionMatrix(testData$classe, predictRF)$overall[1])
+print(oosError)
+```
+
+# Predicting for the test data set
+``` {r}
+result <- predict(modelRF, testClean[, -length(names(testClean))])
+print(result)
+```
+
+# Appendix
+``` {r}
+# Correlation Matrix Visualization
+corrPlot <- cor(trngData[, -length(names(trngData))])
+corrplot(corrPlot, method = 'color')
+
+# Decision Tree Visualization
+treeModel <- rpart(classe ~ ., data = trngData, method = 'class')
+prp(treeModel)
+```
